@@ -91,6 +91,7 @@ public class ProfileService {
         } catch (DataIntegrityViolationException e) {
             throw usernameTaken("Já existe um usuário com esse username");
         }
+        log.info("Perfil {} criado (pendente de confirmação)", id);
         return new CreateResult(profile, true);
     }
 
@@ -102,6 +103,7 @@ public class ProfileService {
                 throw ApiException.conflict("profile_active", "O perfil já foi ativado");
             }
             profiles.delete(profile);
+            log.info("Perfil pendente {} descartado (compensação do cadastro)", id);
         });
     }
 
@@ -123,6 +125,7 @@ public class ProfileService {
         profile.touch(now);
         profiles.save(profile);
         outbox.add(CREATED, profile.getId(), profile.getVersion(), snapshot(profile));
+        log.info("Perfil {} ativado", id);
     }
 
     /** Reação a {@code account.deleted.v1}: apaga os dados pessoais e libera o username. Idempotente. */
@@ -155,6 +158,7 @@ public class ProfileService {
             outbox.add(DELETED, id, profile.getVersion(), data);
         }
         deleteFileAfterCommit(oldAvatar);
+        log.info("Dados pessoais da conta {} apagados", id);
     }
 
     // ------------------------------------------------------------------ leitura
@@ -249,6 +253,7 @@ public class ProfileService {
             throw usernameTaken("Username já está em uso, tente outro!");
         }
         publishChange(profile, privacyChanged);
+        log.info("Perfil {} atualizado (privacidade alterada: {})", accountId, privacyChanged);
         return profile;
     }
 
@@ -262,6 +267,7 @@ public class ProfileService {
         profiles.saveAndFlush(profile);
         publishChange(profile, false);
         deleteFileAfterCommit(oldKey);
+        log.info("Foto do perfil {} trocada", accountId);
         return profile;
     }
 

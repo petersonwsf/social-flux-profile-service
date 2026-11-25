@@ -37,8 +37,8 @@ public class AccountEventHandler {
         UUID accountId = event.aggregateId();
 
         switch (event.type()) {
-            case REGISTERED -> inbox.once(event.id(), () -> profiles.activate(accountId));
-            case DELETED -> inbox.once(event.id(), () -> profiles.deleteAccountData(accountId));
+            case REGISTERED -> inbox.once(event, () -> profiles.activate(accountId));
+            case DELETED -> inbox.once(event, () -> profiles.deleteAccountData(accountId));
             default -> log.debug("Evento ignorado: {}", event.type());
         }
     }
