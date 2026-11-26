@@ -6,6 +6,9 @@ WORKDIR /build
 COPY libs/socialflux-events/pom.xml libs/socialflux-events/pom.xml
 COPY libs/socialflux-events/src libs/socialflux-events/src
 RUN mvn -q -B -f libs/socialflux-events/pom.xml -DskipTests install
+COPY libs/socialflux-audit/pom.xml libs/socialflux-audit/pom.xml
+COPY libs/socialflux-audit/src libs/socialflux-audit/src
+RUN mvn -q -B -f libs/socialflux-audit/pom.xml -DskipTests install
 COPY libs/socialflux-media/pom.xml libs/socialflux-media/pom.xml
 COPY libs/socialflux-media/src libs/socialflux-media/src
 RUN mvn -q -B -f libs/socialflux-media/pom.xml -DskipTests install

@@ -1,5 +1,7 @@
 package com.socialflux.profile.service;
 
+import com.socialflux.audit.AuditEntry;
+import com.socialflux.audit.AuditRecorder;
 import com.socialflux.events.Outbox;
 import com.socialflux.profile.domain.Profile;
 import com.socialflux.profile.domain.ProfileRepository;
@@ -18,6 +20,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,12 +56,15 @@ public class ProfileService {
     private final ProfileRepository profiles;
     private final Outbox outbox;
     private final StorageService storage;
+    private final AuditRecorder audit;
     private final Clock clock;
 
-    public ProfileService(ProfileRepository profiles, Outbox outbox, StorageService storage, Clock clock) {
+    public ProfileService(ProfileRepository profiles, Outbox outbox, StorageService storage, AuditRecorder audit,
+                          Clock clock) {
         this.profiles = profiles;
         this.outbox = outbox;
         this.storage = storage;
+        this.audit = audit;
         this.clock = clock;
     }
 
@@ -212,6 +218,7 @@ public class ProfileService {
         Profile profile = findOwn(accountId).orElseThrow(() -> ApiException.notFound("Usuário não encontrado"));
         boolean changed = false;
         boolean privacyChanged = false;
+        List<String> changedFields = new ArrayList<>();   // só os NOMES dos campos vão para a auditoria, nunca os valores
 
         if (command.username() != null) {
             String username = ProfileRules.normalizeUsername(command.username());
@@ -222,6 +229,7 @@ public class ProfileService {
                 }
                 profile.setUsername(username);
                 changed = true;
+                changedFields.add("username");
             }
         }
         if (command.nome() != null) {
@@ -229,6 +237,7 @@ public class ProfileService {
             if (!name.equals(profile.getDisplayName())) {
                 profile.setDisplayName(name);
                 changed = true;
+                changedFields.add("nome");
             }
         }
         if (command.biografia() != null) {
@@ -236,9 +245,11 @@ public class ProfileService {
             if (!java.util.Objects.equals(bio, profile.getBio())) {
                 profile.setBio(bio);
                 changed = true;
+                changedFields.add("biografia");
             }
         }
-        if (command.privado() != null && command.privado() != profile.isPrivate()) {
+        boolean wasPrivate = profile.isPrivate();
+        if (command.privado() != null && command.privado() != wasPrivate) {
             profile.setPrivate(command.privado());
             privacyChanged = true;
             changed = true;
@@ -253,6 +264,7 @@ public class ProfileService {
             throw usernameTaken("Username já está em uso, tente outro!");
         }
         publishChange(profile, privacyChanged);
+        auditUpdate(profile, changedFields, privacyChanged, wasPrivate);
         log.info("Perfil {} atualizado (privacidade alterada: {})", accountId, privacyChanged);
         return profile;
     }
@@ -266,12 +278,27 @@ public class ProfileService {
         profile.touch(clock.instant());
         profiles.saveAndFlush(profile);
         publishChange(profile, false);
+        audit.inTransaction(AuditEntry.success("AVATAR_CHANGED").actor(accountId).target("PROFILE", accountId));
         deleteFileAfterCommit(oldKey);
         log.info("Foto do perfil {} trocada", accountId);
         return profile;
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** Auditoria da edição (na transação): os campos alterados (só os nomes) e, à parte, a mudança de privacidade. */
+    private void auditUpdate(Profile profile, List<String> changedFields, boolean privacyChanged, boolean wasPrivate) {
+        UUID id = profile.getId();
+        if (!changedFields.isEmpty()) {
+            audit.inTransaction(AuditEntry.success("PROFILE_UPDATED").actor(id).target("PROFILE", id)
+                    .detail("fields", changedFields));
+        }
+        if (privacyChanged) {
+            audit.inTransaction(AuditEntry.success("PROFILE_PRIVACY_CHANGED").actor(id).target("PROFILE", id)
+                    .detail("from", wasPrivate ? "PRIVATE" : "PUBLIC")
+                    .detail("to", profile.isPrivate() ? "PRIVATE" : "PUBLIC"));
+        }
+    }
 
     private void publishChange(Profile profile, boolean privacyChanged) {
         if (profile.getStatus() != ProfileStatus.ACTIVE) {
