@@ -76,6 +76,22 @@ mvn test        # na pasta do serviço, depois de instalar as bibliotecas: mvn -
 # ou, na raiz: mvn -pl profile_service -am test
 ```
 
+## Auditoria central
+
+Eventos de auditoria (quem fez o quê, em quê, quando e de onde) vão para o **audit-service** (aplicação `social-flux`, serviço
+`profile`) pela biblioteca `libs/socialflux-audit`: cada evento é gravado na tabela `audit_outbox` **na mesma transação da
+ação** (ou em transação própria, quando precisa sobreviver a um rollback) e um relay o envia em lote. Se o audit-service cair,
+os eventos esperam na outbox. Com `AUDIT_ENABLED=false` (padrão) o envio fica desligado.
+
+| Ação | Quando | Detalhe (`detail`) |
+| --- | --- | --- |
+| `PROFILE_UPDATED` | edição de username, nome ou biografia (`PATCH /api/usuarios/{id}`) | `fields`: só os **nomes** dos campos alterados |
+| `PROFILE_PRIVACY_CHANGED` | troca entre conta pública e privada | `from` e `to` (`PUBLIC`/`PRIVATE`) |
+| `AVATAR_CHANGED` | troca da foto de perfil | — |
+
+Nunca vão para a auditoria: texto, e-mail, telefone, data de nascimento nem o conteúdo editado; só UUIDs, nomes de campos e
+categorias. O IP e o user agent da requisição seguem junto (só para o audit-service, nunca para o log).
+
 ## Logs e rastreabilidade
 
 - Toda requisição carrega o `X-Correlation-Id` (o gateway cria; o `CorrelationIdFilter` de `libs/socialflux-events` o põe no MDC e o devolve na resposta) e gera uma linha de acesso (`Requisição GET /caminho respondeu 200 em 12 ms`, sem query string; health checks e `/internal/auth/verify` ficam em DEBUG). O mesmo id vai nos eventos publicados e é retomado por quem os consome, então um fluxo inteiro (ex.: cadastro → perfil → notificações) se acompanha pelo Loki/Grafana procurando o `correlationId`.
@@ -96,6 +112,7 @@ mvn test        # na pasta do serviço, depois de instalar as bibliotecas: mvn -
 | `PROFILE_AVATAR_MAX_BYTES`, `PROFILE_AVATAR_MAX_PIXELS` | Limites do upload (5MB, 16 MP) → `socialflux.media.image.*` |
 | `PROFILE_MEDIA_MAX_CONCURRENT` | Processamentos de imagem simultâneos (padrão 4) |
 | `RABBITMQ_HOST/PORT/USER/PASSWORD`, `EVENTS_EXCHANGE`, `PROFILE_EVENTS_ENABLED` | Broker e eventos |
+| `AUDIT_ENABLED`, `AUDIT_URL`, `AUDIT_API_KEY` | Auditoria central: liga o envio, URL do audit-service (`http://audit-service:8090`, rede `audit-net`) e a chave da aplicação `social-flux` (segredo, só no `.env`) |
 | `PROFILE_ALLOWED_ORIGINS` | Origens aceitas em métodos não seguros (vazio = a própria origem) |
 
 ## Limites conhecidos

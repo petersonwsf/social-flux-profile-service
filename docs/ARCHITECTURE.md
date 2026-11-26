@@ -15,6 +15,7 @@ web (ProfileController, InternalProfileController, MediaController, DTOs, erros)
         ├─► domain (Profile + ProfileRepository) ─► PostgreSQL
         ├─► storage (AvatarProcessor → libs/socialflux-media, StorageService → bucket `avatars` no RustFS) 
         └─► Outbox ─► OutboxRelay ─► RabbitMQ                              (libs/socialflux-events)
+        └─► AuditRecorder ─► audit_outbox ─► relay ─► audit-service        (libs/socialflux-audit)
                                               └─► outros consumidores
 events/AccountEventsListener ◄─ RabbitMQ (account.*) ─► AccountEventHandler ─► ProfileService
 security (JwtDecoder via JWKS, JwtAuthorities, OriginCheckFilter, SecurityConfig) envolve tudo.
@@ -24,7 +25,7 @@ security (JwtDecoder via JWKS, JwtAuthorities, OriginCheckFilter, SecurityConfig
 
 ```
 profile_service/
-├── Dockerfile                    build Maven multi-stage (contexto = raiz do repo, para incluir libs/socialflux-events); runtime Temurin 21 JRE, usuário sem root
+├── Dockerfile                    build Maven multi-stage (contexto = raiz do repo, para incluir libs/socialflux-events e libs/socialflux-audit); runtime Temurin 21 JRE, usuário sem root
 ├── .gitignore                    exclui target/ e arquivos de IDE
 ├── pom.xml                       dependências (Spring Boot 4, Security/Resource Server, JPA, Flyway, AMQP; testes: embedded-postgres)
 ├── README.md                     relação com os outros serviços, API, eventos e configuração
@@ -93,7 +94,7 @@ profile_service/
 
 | Arquivo | O que representa |
 | --- | --- |
-| `ProfileService.java` | Regras do perfil: criação (interna), leitura com visão pública × do dono, busca, edição, privacidade, ativação, exclusão e descarte de pendentes; cada mudança grava o evento no outbox |
+| `ProfileService.java` | Regras do perfil: criação (interna), leitura com visão pública × do dono, busca, edição, privacidade, ativação, exclusão e descarte de pendentes; cada mudança grava o evento no outbox e a auditoria (`PROFILE_UPDATED`, `PROFILE_PRIVACY_CHANGED`, `AVATAR_CHANGED`) na mesma transação |
 | `AvatarService.java` | Troca da foto: limita a frequência (10/h), processa a imagem, grava com chave nova e só então atualiza o banco; se o banco falhar, apaga o arquivo órfão |
 | `ProfileRules.java` | Validações no servidor: formato do username e nomes reservados, nome, bio (≤ 500), telefone, sexo e idade mínima |
 | `RateLimiter.java` | Janela deslizante em memória (busca, troca de foto) |
@@ -125,6 +126,7 @@ profile_service/
 | --- | --- |
 | `V1__profile.sql` | Tabelas `profile`, `outbox_event`, `processed_message` (e a sequence `legacy_id_seq`, removida na V2) |
 | `V2__remove_legacy_id.sql` | Remove `profile.legacy_id` e a sequence `legacy_id_seq`: o id inteiro temporário não existe mais, só o UUID |
+| `V3__audit_outbox.sql` | Tabela `audit_outbox` (auditoria central: eventos pendentes de envio ao audit-service, com tentativas e falhas) |
 
 ### `src/test/java/com/socialflux/profile/`
 
@@ -135,6 +137,7 @@ profile_service/
 | `SecurityTest.java` | 401 JSON, só RS256 válido, separação token de usuário × serviço, escopos |
 | `AvatarTest.java` | Upload de avatar ponta a ponta (formato, tamanho, chave gerada, entrega em `/media`, foto em pé com orientação EXIF, WebP aceito), com armazenamento em memória |
 | `AvatarProcessorTest.java` | Unidade: tradução das recusas da biblioteca, chaves fora do formato recusadas pelo armazenamento do bucket, formato das chaves |
+| `AuditTest.java` | Auditoria central: só nomes de campos, de/para da privacidade e troca de avatar, sem conteúdo editado |
 | `EventsTest.java` | Reação a `account.*` (idempotência) e eventos `profile.*` gerados no outbox |
 | `support/AbstractProfileTest.java` | Base: serviço em porta aleatória com PostgreSQL embutido e servidor JWKS local de teste; helpers de tokens, contas e outbox |
 | `support/Http.java` | Cliente HTTP mínimo dos testes (JSON e multipart) |

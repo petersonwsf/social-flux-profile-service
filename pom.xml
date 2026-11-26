@@ -64,6 +64,12 @@
             <artifactId>socialflux-events</artifactId>
             <version>0.1.0-SNAPSHOT</version>
         </dependency>
+        <!-- Auditoria central: outbox local + envio ao audit-service (libs/socialflux-audit) -->
+        <dependency>
+            <groupId>com.socialflux</groupId>
+            <artifactId>socialflux-audit</artifactId>
+            <version>0.1.0-SNAPSHOT</version>
+        </dependency>
         <!-- Processamento de imagens e armazenamento S3/RustFS compartilhados (libs/socialflux-media) -->
         <dependency>
             <groupId>com.socialflux</groupId>
